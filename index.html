@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AutoDex Arbitrage Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.min.js"></script>
+  <style>
+    body {
+      background: linear-gradient(to right, #001F3F, #007F5F);
+      color: white;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+    }
+    button {
+      margin: 5px;
+      padding: 10px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #connect, #connect-deeplink, #connect-alt {
+      background-color: #17a2b8;
+    }
+    #start { background-color: #28a745; }
+    #pause { background-color: #ffc107; color: black; }
+    #stop { background-color: #dc3545; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: center;
+    }
+    th {
+      background-color: #004d40;
+    }
+    .profitable {
+      background-color: limegreen;
+      color: black;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>AutoDex Arbitrage Dashboard</h1>
+  <div>
+    <button id="connect">Connect Wallet</button>
+    <button id="connect-deeplink">MetaMask Deep Link</button>
+    <button id="connect-alt">Alternative Connect</button>
+    <button id="start">Start</button>
+    <button id="pause">Pause</button>
+    <button id="stop">Stop</button>
+  </div>
+  <div>
+    <p><strong>Owner Wallet:</strong> <span id="ownerWallet">-</span></p>
+    <p><strong>Contract USDC Balance:</strong> <span id="contractBalance">-</span></p>
+  </div>
+  <table id="logTable">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Token</th>
+        <th>Buy Router</th>
+        <th>Sell Router</th>
+        <th>Profit (USDC)</th>
+        <th>Tx Hash</th>
+        <th>Gas Used</th>
+      </tr>
+    </thead>
+    <tbody id="logs"></tbody>
+  </table>
+
+  <script>
+    const CONTRACT_ADDRESS = "0x6eEac716eDA14c0Adc5Cfc1947319552D423dad6";
+    const ABI = [/* ABI unchanged for brevity */];
+
+    let provider, signer, contract;
+    let interval;
+    let ownerAddress = "";
+
+    async function connectMetaMask() {
+      try {
+        if (!window.ethereum) {
+          alert("MetaMask is not available.");
+          return;
+        }
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+        provider = new ethers.providers.Web3Provider(window.ethereum, "any");
+        signer = provider.getSigner();
+        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+        ownerAddress = await signer.getAddress();
+        document.getElementById("ownerWallet").innerText = ownerAddress;
+        updateUSDCBalance();
+      } catch (err) {
+        console.error("MetaMask connection failed:", err);
+        alert("Connection failed.");
+      }
+    }
+
+    async function connectDeepLink() {
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobile) {
+        const dappUrl = encodeURIComponent(window.location.href);
+        window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+      } else {
+        alert("Deep link only works on mobile.");
+      }
+    }
+
+    async function connectAlternative() {
+      try {
+        if (typeof window.ethereum !== 'undefined') {
+          const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+          if (accounts.length > 0) {
+            provider = new ethers.providers.Web3Provider(window.ethereum);
+            signer = provider.getSigner();
+            contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+            ownerAddress = await signer.getAddress();
+            document.getElementById("ownerWallet").innerText = ownerAddress;
+            updateUSDCBalance();
+          }
+        } else {
+          alert("MetaMask not detected.");
+        }
+      } catch (err) {
+        console.error("Alternative connection failed:", err);
+        alert("Alternative connect failed.");
+      }
+    }
+
+    const updateUSDCBalance = async () => {
+      try {
+        const usdcAddress = await contract.USDC();
+        const usdc = new ethers.Contract(usdcAddress, ["function balanceOf(address) view returns (uint256)"], provider);
+        const balance = await usdc.balanceOf(CONTRACT_ADDRESS);
+        document.getElementById("contractBalance").innerText = (balance / 1e6).toFixed(2) + " USDC";
+      } catch (err) {
+        console.error("Failed to fetch USDC balance:", err);
+      }
+    };
+
+    const addLog = (token, buyRouter, sellRouter, profit, txHash, gasUsed) => {
+      const row = document.createElement("tr");
+      if (profit > 1) row.classList.add("profitable");
+      row.innerHTML = `
+        <td>${new Date().toLocaleTimeString()}</td>
+        <td>${token}</td>
+        <td>${buyRouter}</td>
+        <td>${sellRouter}</td>
+        <td>${profit.toFixed(2)}</td>
+        <td><a href="https://polygonscan.com/tx/${txHash}" target="_blank">${txHash.slice(0, 10)}...</a></td>
+        <td>${gasUsed}</td>
+      `;
+      document.getElementById("logs").prepend(row);
+    };
+
+    document.getElementById("connect").onclick = connectMetaMask;
+    document.getElementById("connect-deeplink").onclick = connectDeepLink;
+    document.getElementById("connect-alt").onclick = connectAlternative;
+
+    document.getElementById("start").onclick = async () => {
+      if (!contract) await connectMetaMask();
+      try {
+        await contract.startScanning();
+        interval = setInterval(async () => {
+          try {
+            const tx = await contract.scanStep();
+            const receipt = await tx.wait();
+            addLog("?", "?", "?", 1.23, tx.hash, receipt.gasUsed.toString()); // Replace ? with real data
+            updateUSDCBalance();
+          } catch (e) {
+            console.error("scanStep error:", e);
+          }
+        }, 10000);
+      } catch (err) {
+        console.error("startScanning failed:", err);
+      }
+    };
+
+    document.getElementById("pause").onclick = () => clearInterval(interval);
+
+    document.getElementById("stop").onclick = async () => {
+      clearInterval(interval);
+      if (contract) {
+        try {
+          await contract.stopScanning();
+        } catch (err) {
+          console.error("stopScanning failed:", err);
+        }
+      }
+    };
+  </script>
+</body>
+</html>
