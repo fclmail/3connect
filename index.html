@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AutoDex Arbitrage Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.min.js"></script>
   <style>
@@ -23,9 +23,8 @@
       border-radius: 5px;
       cursor: pointer;
     }
-    #connect, #connect-deeplink, #connect-alt {
-      background-color: #17a2b8;
-    }
+    #connect, #connectAlt { background-color: #0069d9; }
+    #deepLinkConnect { background-color: #17a2b8; }
     #start { background-color: #28a745; }
     #pause { background-color: #ffc107; color: black; }
     #stop { background-color: #dc3545; }
@@ -53,8 +52,8 @@
   <h1>AutoDex Arbitrage Dashboard</h1>
   <div>
     <button id="connect">Connect Wallet</button>
-    <button id="connect-deeplink">MetaMask Deep Link</button>
-    <button id="connect-alt">Alternative Connect</button>
+    <button id="connectAlt">Connect Wallet (Alt)</button>
+    <button id="deepLinkConnect">Connect via Deep Link</button>
     <button id="start">Start</button>
     <button id="pause">Pause</button>
     <button id="stop">Stop</button>
@@ -86,55 +85,43 @@
     let interval;
     let ownerAddress = "";
 
-    async function connectMetaMask() {
+    const connectWallet = async () => {
       try {
-        if (!window.ethereum) {
-          alert("MetaMask is not available.");
-          return;
-        }
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        provider = new ethers.providers.Web3Provider(window.ethereum, "any");
-        signer = provider.getSigner();
-        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-        ownerAddress = await signer.getAddress();
-        document.getElementById("ownerWallet").innerText = ownerAddress;
-        updateUSDCBalance();
-      } catch (err) {
-        console.error("MetaMask connection failed:", err);
-        alert("Connection failed.");
-      }
-    }
-
-    async function connectDeepLink() {
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      if (isMobile) {
-        const dappUrl = encodeURIComponent(window.location.href);
-        window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
-      } else {
-        alert("Deep link only works on mobile.");
-      }
-    }
-
-    async function connectAlternative() {
-      try {
-        if (typeof window.ethereum !== 'undefined') {
-          const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-          if (accounts.length > 0) {
-            provider = new ethers.providers.Web3Provider(window.ethereum);
-            signer = provider.getSigner();
-            contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-            ownerAddress = await signer.getAddress();
-            document.getElementById("ownerWallet").innerText = ownerAddress;
-            updateUSDCBalance();
-          }
+        if (window.ethereum) {
+          await window.ethereum.request({ method: 'eth_requestAccounts' });
+          provider = new ethers.providers.Web3Provider(window.ethereum, "any");
+          signer = provider.getSigner();
+          contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+          ownerAddress = await signer.getAddress();
+          document.getElementById("ownerWallet").innerText = ownerAddress;
+          updateUSDCBalance();
         } else {
-          alert("MetaMask not detected.");
+          alert("MetaMask not found.");
         }
       } catch (err) {
-        console.error("Alternative connection failed:", err);
-        alert("Alternative connect failed.");
+        console.error("Connection error:", err);
+        alert("Wallet connection failed. Try again.");
       }
-    }
+    };
+
+    // Alternate connect button (fallback)
+    const connectAltWallet = async () => {
+      if (typeof window.ethereum !== "undefined") {
+        try {
+          await ethereum.request({ method: 'eth_requestAccounts' });
+          provider = new ethers.providers.Web3Provider(window.ethereum);
+          signer = provider.getSigner();
+          contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+          ownerAddress = await signer.getAddress();
+          document.getElementById("ownerWallet").innerText = ownerAddress;
+          updateUSDCBalance();
+        } catch (err) {
+          console.error("Alt connect error:", err);
+        }
+      } else {
+        alert("No Ethereum provider found.");
+      }
+    };
 
     const updateUSDCBalance = async () => {
       try {
@@ -162,19 +149,22 @@
       document.getElementById("logs").prepend(row);
     };
 
-    document.getElementById("connect").onclick = connectMetaMask;
-    document.getElementById("connect-deeplink").onclick = connectDeepLink;
-    document.getElementById("connect-alt").onclick = connectAlternative;
+    document.getElementById("connect").onclick = connectWallet;
+    document.getElementById("connectAlt").onclick = connectAltWallet;
+    document.getElementById("deepLinkConnect").onclick = () => {
+      const dappUrl = encodeURIComponent("https://fclmail.github.io/3connect/");
+      window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+    };
 
     document.getElementById("start").onclick = async () => {
-      if (!contract) await connectMetaMask();
+      if (!contract) await connectWallet();
       try {
         await contract.startScanning();
         interval = setInterval(async () => {
           try {
             const tx = await contract.scanStep();
             const receipt = await tx.wait();
-            addLog("?", "?", "?", 1.23, tx.hash, receipt.gasUsed.toString()); // Replace ? with real data
+            addLog("?", "?", "?", 1.23, tx.hash, receipt.gasUsed.toString()); // Replace ? with real data if available
             updateUSDCBalance();
           } catch (e) {
             console.error("scanStep error:", e);
@@ -185,7 +175,9 @@
       }
     };
 
-    document.getElementById("pause").onclick = () => clearInterval(interval);
+    document.getElementById("pause").onclick = () => {
+      clearInterval(interval);
+    };
 
     document.getElementById("stop").onclick = async () => {
       clearInterval(interval);
